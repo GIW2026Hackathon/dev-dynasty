@@ -1,0 +1,46 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    function isSignedIn() { return request.auth != null; }
+    function isAdmin() {
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Allow anyone logged in to read/write basic profiles
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    // Allow anyone to read farmers, and allow updates (for rating changes)
+    match /farmers/{farmerId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    // Allow anyone logged in to read and update listings (for buying/stock)
+    match /listings/{listingId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    // Allow buyers to create transactions
+    match /transactions/{txnId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+    }
+
+    // ALLOW BUYERS TO CREATE REVIEWS (This was the block!)
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update: if isAdmin() || (isSignedIn() && resource.data.farmerId == request.auth.uid);
+    }
+
+    match /audit_log/{logId} {
+      allow read, write: if isSignedIn(); 
+    }
+  }
+}

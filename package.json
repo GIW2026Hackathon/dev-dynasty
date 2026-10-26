@@ -1,0 +1,9 @@
+{
+  "name": "giw-agritech-root",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Root workspace for GIW AgriTech",
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  }
+}

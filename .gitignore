@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.local
+firebase/serviceAccount.json
+*.log
+.DS_Store
+firebase/seed/serviceAccount.json
+# Local Netlify folder
+.netlify
