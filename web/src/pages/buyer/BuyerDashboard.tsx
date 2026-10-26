@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
 import { collection, query, where, getDocs } from "firebase/firestore";
-import { Search, MapPin, Tag } from "lucide-react";
+import { Search, MapPin, Tag, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { ListingDocument } from "../../lib/types";
+import AiChatModal from "../../components/AiChatModal";
 
 export default function BuyerDashboard() {
   const [listings, setListings] = useState<ListingDocument[]>([]);
@@ -12,6 +13,9 @@ export default function BuyerDashboard() {
   
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
+  
+  // AI Modal State
+  const [isAiOpen, setIsAiOpen] = useState(false);
 
   useEffect(() => {
     const fetchListings = async () => {
@@ -59,9 +63,19 @@ export default function BuyerDashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Marketplace</h1>
-        <p className="text-gray-500 mt-1">Browse fresh produce from verified farmers.</p>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Marketplace</h1>
+          <p className="text-gray-500 mt-1">Browse fresh produce from verified farmers.</p>
+        </div>
+        
+        {/* AI Button for Buyers */}
+        <button 
+          onClick={() => setIsAiOpen(true)}
+          className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-sm"
+        >
+          <Sparkles className="w-4 h-4" /> Ask AI
+        </button>
       </div>
 
       <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col md:flex-row gap-4">
@@ -88,6 +102,7 @@ export default function BuyerDashboard() {
             <option value="poultry">Poultry</option>
             <option value="edible_oils">Edible Oils</option>
             <option value="indigenous_crops">Indigenous Crops</option>
+            <option value="apiculture">Apiculture (Honey)</option>
           </optgroup>
           <optgroup label="Other Produce">
             <option value="vegetables">Vegetables</option>
@@ -144,6 +159,8 @@ export default function BuyerDashboard() {
           ))}
         </div>
       )}
+
+      <AiChatModal isOpen={isAiOpen} onClose={() => setIsAiOpen(false)} />
     </div>
   );
 }

@@ -1,12 +1,11 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
-import type { UserDocument } from "../lib/types";
 
 interface AuthContextType {
   currentUser: FirebaseUser | null;
-  userData: UserDocument | null;
+  userData: any | null;
   loading: boolean;
 }
 
@@ -18,7 +17,7 @@ const AuthContext = createContext<AuthContextType>({
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
-  const [userData, setUserData] = useState<UserDocument | null>(null);
+  const [userData, setUserData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -31,9 +30,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const docSnap = await getDoc(docRef);
           
           if (docSnap.exists()) {
-            setUserData(docSnap.data() as UserDocument);
+            const baseData = docSnap.data();
+            let mergedData = { ...baseData, id: user.uid };
+
+            // If the user is a farmer, fetch their verification status
+            if (baseData.role === "farmer") {
+              const farmerQuery = query(collection(db, "farmers"), where("userId", "==", user.uid));
+              const farmerSnap = await getDocs(farmerQuery);
+              if (!farmerSnap.empty) {
+                mergedData = { ...mergedData, ...farmerSnap.docs[0].data() };
+              }
+            }
+            setUserData(mergedData);
           } else {
-            console.error("No user profile found in Firestore!");
             setUserData(null);
           }
         } catch (error) {
@@ -43,7 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setUserData(null);
       }
-      setLoading(false); // ALWAYS stop loading, even if Firestore fails
+      setLoading(false); 
     });
 
     return unsubscribe;

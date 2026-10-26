@@ -2,9 +2,11 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { db } from "../../lib/firebase";
 import { collection, query, where, getDocs } from "firebase/firestore";
-import { PlusCircle, ShieldCheck, Clock, Star, Package, MessageSquare } from "lucide-react";
+import { PlusCircle, ShieldCheck, Clock, Star, Package, MessageSquare, Sparkles, BarChart3, AlertTriangle } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { ListingDocument } from "../../lib/types";
+import AiChatModal from "../../components/AiChatModal";
+import { getMarketRecommendation } from "../../lib/marketIntelligence";
 
 interface ReviewData {
   id: string;
@@ -21,27 +23,34 @@ export default function FarmerDashboard() {
   const [ratingAvg, setRatingAvg] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   
-  // Real verification state from the database
-  const [isVerified, setIsVerified] = useState(false); 
+  // Verification State
+  const [verificationStatus, setVerificationStatus] = useState<"pending" | "verified" | "rejected">("pending");
+  const [rejectionReason, setRejectionReason] = useState<string>("");
+  
+  const [isAiOpen, setIsAiOpen] = useState(false);
+
+  // Market Intelligence State
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [marketInsight, setMarketInsight] = useState("");
+  const [analysisCategory, setAnalysisCategory] = useState("poultry"); 
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       if (!userData) return;
       try {
-        // 1. Fetch Farmer's Verification Status
+        // 1. Fetch Verification Status and Rejection Reason
         const farmerProfileQuery = query(collection(db, "farmers"), where("userId", "==", userData.id));
         const farmerProfileSnap = await getDocs(farmerProfileQuery);
-        
         if (!farmerProfileSnap.empty) {
           const profileData = farmerProfileSnap.docs[0].data();
-          setIsVerified(profileData.verificationStatus === "verified");
+          setVerificationStatus(profileData.verificationStatus);
+          if (profileData.rejectionReason) {
+            setRejectionReason(profileData.rejectionReason);
+          }
         }
 
-        // 2. Fetch Farmer's Listings
-        const listingsQuery = query(
-          collection(db, "listings"), 
-          where("farmerId", "==", userData.id)
-        );
+        // 2. Fetch Listings
+        const listingsQuery = query(collection(db, "listings"), where("farmerId", "==", userData.id));
         const listingsSnapshot = await getDocs(listingsQuery);
         const fetchedListings: ListingDocument[] = [];
         listingsSnapshot.forEach((doc) => {
@@ -49,11 +58,8 @@ export default function FarmerDashboard() {
         });
         setListings(fetchedListings);
 
-        // 3. Fetch Farmer's Reviews
-        const reviewsQuery = query(
-          collection(db, "reviews"),
-          where("farmerId", "==", userData.id)
-        );
+        // 3. Fetch Reviews
+        const reviewsQuery = query(collection(db, "reviews"), where("farmerId", "==", userData.id));
         const reviewsSnapshot = await getDocs(reviewsQuery);
         const fetchedReviews: ReviewData[] = [];
         let totalRating = 0;
@@ -68,7 +74,6 @@ export default function FarmerDashboard() {
         if (fetchedReviews.length > 0) {
           setRatingAvg(totalRating / fetchedReviews.length);
         }
-
       } catch (error) {
         console.error("Error fetching dashboard data:", error);
       } finally {
@@ -79,31 +84,46 @@ export default function FarmerDashboard() {
     fetchDashboardData();
   }, [userData]);
 
+  const handleAnalyzeCompetition = async () => {
+    setIsAnalyzing(true);
+    setMarketInsight("");
+    const insight = await getMarketRecommendation(analysisCategory, "farmer");
+    setMarketInsight(insight);
+    setIsAnalyzing(false);
+  };
+
   if (loading) return <div className="text-center mt-20 text-gray-500">Loading dashboard...</div>;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">My Farm</h1>
           <p className="text-gray-500 mt-1">Manage your produce and listings</p>
         </div>
         
-        {/* ONLY SHOW CREATE BUTTON IF VERIFIED */}
-        {isVerified && (
-          <Link
-            to="/dashboard/farmer/new-listing"
-            className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-5 py-2.5 rounded-lg font-medium transition-colors shadow-sm"
+        <div className="flex gap-3">
+          <button 
+            onClick={() => setIsAiOpen(true)}
+            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-5 py-2.5 rounded-lg font-medium transition-colors shadow-sm"
           >
-            <PlusCircle className="w-5 h-5" />
-            Create Listing
-          </Link>
-        )}
+            <Sparkles className="w-5 h-5" /> Ask AI
+          </button>
+
+          {verificationStatus === "verified" && (
+            <Link
+              to="/dashboard/farmer/new-listing"
+              className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-5 py-2.5 rounded-lg font-medium transition-colors shadow-sm"
+            >
+              <PlusCircle className="w-5 h-5" />
+              Create Listing
+            </Link>
+          )}
+        </div>
       </div>
 
-      {/* Verification Status Banner */}
-      {isVerified ? (
+      {/* VERIFICATION STATUS BANNERS */}
+      {verificationStatus === "verified" && (
         <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-start gap-4">
           <div className="bg-green-100 p-2 rounded-full text-green-700 mt-0.5">
             <ShieldCheck className="w-6 h-6" />
@@ -115,7 +135,9 @@ export default function FarmerDashboard() {
             </p>
           </div>
         </div>
-      ) : (
+      )}
+
+      {verificationStatus === "pending" && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex items-start gap-4">
           <div className="bg-yellow-100 p-2 rounded-full text-yellow-700 mt-0.5">
             <Clock className="w-6 h-6" />
@@ -129,7 +151,54 @@ export default function FarmerDashboard() {
         </div>
       )}
 
-      {/* Stats Row */}
+      {verificationStatus === "rejected" && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-4">
+          <div className="bg-red-100 p-2 rounded-full text-red-700 mt-0.5">
+            <AlertTriangle className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="text-red-800 font-semibold">Verification Rejected</h3>
+            <p className="text-red-700 text-sm mt-1">
+              Your registration was rejected by the extension officer. 
+              <strong> Reason: {rejectionReason || "No reason provided."}</strong>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* MARKET INTELLIGENCE FOR FARMERS ONLY */}
+      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
+          <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-brand-600" /> AI Competitor Price Analysis
+          </h3>
+          <div className="flex gap-2">
+            <select
+              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white"
+              value={analysisCategory}
+              onChange={(e) => setAnalysisCategory(e.target.value)}
+            >
+              <option value="poultry">Poultry</option>
+              <option value="horticulture">Horticulture</option>
+              <option value="livestock">Livestock</option>
+              <option value="apiculture">Apiculture (Honey)</option>
+            </select>
+            <button 
+              onClick={handleAnalyzeCompetition}
+              disabled={isAnalyzing}
+              className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {isAnalyzing ? "Analyzing..." : "Analyze Market"}
+            </button>
+          </div>
+        </div>
+        {marketInsight && (
+          <div className="bg-brand-50 border border-brand-100 p-4 rounded-lg text-sm text-gray-800">
+            <strong>AI Analyst:</strong> {marketInsight}
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex items-center gap-4">
           <div className="bg-blue-50 p-3 rounded-lg text-blue-600"><Package className="w-6 h-6" /></div>
@@ -149,21 +218,19 @@ export default function FarmerDashboard() {
           </div>
         </div>
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex items-center gap-4">
-          <div className={`p-3 rounded-lg ${isVerified ? 'bg-brand-50 text-brand-600' : 'bg-yellow-50 text-yellow-600'}`}>
-            {isVerified ? <ShieldCheck className="w-6 h-6" /> : <Clock className="w-6 h-6" />}
+          <div className={`p-3 rounded-lg ${verificationStatus === "verified" ? 'bg-brand-50 text-brand-600' : verificationStatus === "rejected" ? 'bg-red-50 text-red-600' : 'bg-yellow-50 text-yellow-600'}`}>
+            {verificationStatus === "verified" ? <ShieldCheck className="w-6 h-6" /> : verificationStatus === "rejected" ? <AlertTriangle className="w-6 h-6" /> : <Clock className="w-6 h-6" />}
           </div>
           <div>
             <p className="text-sm text-gray-500">Status</p>
-            <p className={`text-2xl font-bold ${isVerified ? 'text-gray-900' : 'text-yellow-600'}`}>
-              {isVerified ? "Verified" : "Pending"}
+            <p className={`text-2xl font-bold capitalize ${verificationStatus === "verified" ? 'text-gray-900' : verificationStatus === "rejected" ? 'text-red-600' : 'text-yellow-600'}`}>
+              {verificationStatus}
             </p>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
-        
-        {/* LISTINGS COLUMN */}
         <div className="lg:col-span-2 space-y-4">
           <h2 className="text-xl font-bold text-gray-900">Your Listings</h2>
           
@@ -172,7 +239,7 @@ export default function FarmerDashboard() {
               <Package className="mx-auto h-12 w-12 text-gray-300 mb-3" />
               <h3 className="text-lg font-medium text-gray-900">No listings yet</h3>
               <p className="text-gray-500 mt-1 mb-4">
-                {isVerified ? "Get started by creating your first produce listing." : "You will be able to create listings once verified."}
+                {verificationStatus === "verified" ? "Get started by creating your first produce listing." : "You will be able to create listings once verified."}
               </p>
             </div>
           ) : (
@@ -198,7 +265,6 @@ export default function FarmerDashboard() {
           )}
         </div>
 
-        {/* REVIEWS COLUMN */}
         <div className="space-y-4">
           <h2 className="text-xl font-bold text-gray-900">Buyer Reviews</h2>
           
@@ -225,8 +291,9 @@ export default function FarmerDashboard() {
             </div>
           )}
         </div>
-
       </div>
+
+      <AiChatModal isOpen={isAiOpen} onClose={() => setIsAiOpen(false)} />
     </div>
   );
 }

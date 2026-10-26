@@ -3,12 +3,13 @@ import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import { useAuth } from "./hooks/useAuth";
 import AppLayout from "./components/layout/AppLayout";
+import RejectedPage from "./pages/RejectedPage"; // Import the Lockout Page
 
 import FarmerDashboard from "./pages/farmer/FarmerDashboard";
 import NewListingPage from "./pages/farmer/NewListingPage";
 import BuyerDashboard from "./pages/buyer/BuyerDashboard";
 import ListingDetailPage from "./pages/buyer/ListingDetailPage";
-import OfficerDashboard from "./pages/officer/OfficerDashboard"; // <-- IMPORTED HERE
+import OfficerDashboard from "./pages/officer/OfficerDashboard";
 
 function AdminDashboard() { return <div className="text-center mt-10"><h1 className="text-3xl font-bold text-brand-700">Admin Control</h1></div>; }
 
@@ -18,10 +19,15 @@ function DashboardRouter() {
   if (loading) return <div className="text-center mt-20">Loading profile...</div>;
   if (!userData) return <Navigate to="/login" replace />;
 
+  // Check if the user is a rejected farmer
+  if (userData.role === "farmer" && (userData as any).verificationStatus === "rejected") {
+    return <RejectedPage />;
+  }
+
   switch (userData.role) {
     case "farmer": return <FarmerDashboard />;
     case "buyer": return <BuyerDashboard />;
-    case "officer": return <OfficerDashboard />; // <-- ADDED HERE
+    case "officer": return <OfficerDashboard />;
     case "admin": return <AdminDashboard />;
     default: return <div>Unknown role</div>;
   }
