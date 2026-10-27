@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { db } from "../../lib/firebase";
-import { collection, query, where, getDocs } from "firebase/firestore";
-import { PlusCircle, ShieldCheck, Clock, Star, Package, MessageSquare, Sparkles, BarChart3, AlertTriangle } from "lucide-react";
+import { collection, query, where, getDocs, doc, updateDoc } from "firebase/firestore";
+import { PlusCircle, ShieldCheck, Clock, Star, Package, MessageSquare, Sparkles, BarChart3, AlertTriangle, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { ListingDocument } from "../../lib/types";
 import AiChatModal from "../../components/AiChatModal";
 import { getMarketRecommendation } from "../../lib/marketIntelligence";
+import { toast } from "sonner"; // Import toast
 
 interface ReviewData {
   id: string;
@@ -23,13 +24,10 @@ export default function FarmerDashboard() {
   const [ratingAvg, setRatingAvg] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   
-  // Verification State
   const [verificationStatus, setVerificationStatus] = useState<"pending" | "verified" | "rejected">("pending");
   const [rejectionReason, setRejectionReason] = useState<string>("");
   
   const [isAiOpen, setIsAiOpen] = useState(false);
-
-  // Market Intelligence State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [marketInsight, setMarketInsight] = useState("");
   const [analysisCategory, setAnalysisCategory] = useState("poultry"); 
@@ -38,19 +36,20 @@ export default function FarmerDashboard() {
     const fetchDashboardData = async () => {
       if (!userData) return;
       try {
-        // 1. Fetch Verification Status and Rejection Reason
         const farmerProfileQuery = query(collection(db, "farmers"), where("userId", "==", userData.id));
         const farmerProfileSnap = await getDocs(farmerProfileQuery);
         if (!farmerProfileSnap.empty) {
           const profileData = farmerProfileSnap.docs[0].data();
           setVerificationStatus(profileData.verificationStatus);
-          if (profileData.rejectionReason) {
-            setRejectionReason(profileData.rejectionReason);
-          }
+          if (profileData.rejectionReason) setRejectionReason(profileData.rejectionReason);
         }
 
-        // 2. Fetch Listings
-        const listingsQuery = query(collection(db, "listings"), where("farmerId", "==", userData.id));
+        // Only fetch active listings
+        const listingsQuery = query(
+          collection(db, "listings"), 
+          where("farmerId", "==", userData.id),
+          where("status", "==", "active") 
+        );
         const listingsSnapshot = await getDocs(listingsQuery);
         const fetchedListings: ListingDocument[] = [];
         listingsSnapshot.forEach((doc) => {
@@ -58,7 +57,6 @@ export default function FarmerDashboard() {
         });
         setListings(fetchedListings);
 
-        // 3. Fetch Reviews
         const reviewsQuery = query(collection(db, "reviews"), where("farmerId", "==", userData.id));
         const reviewsSnapshot = await getDocs(reviewsQuery);
         const fetchedReviews: ReviewData[] = [];
@@ -92,6 +90,23 @@ export default function FarmerDashboard() {
     setIsAnalyzing(false);
   };
 
+  const handleDeleteListing = async (listingId: string, listingTitle: string) => {
+    const confirmDelete = window.confirm(`Are you sure you want to delete "${listingTitle}"? Buyers will no longer see it.`);
+    if (!confirmDelete) return;
+
+    try {
+      await updateDoc(doc(db, "listings", listingId), {
+        status: "removed" // Soft delete
+      });
+      
+      toast.success("Listing removed successfully.");
+      setListings(prev => prev.filter(l => l.id !== listingId));
+    } catch (error) {
+      console.error("Error deleting listing:", error);
+      toast.error("Failed to delete listing.");
+    }
+  };
+
   if (loading) return <div className="text-center mt-20 text-gray-500">Loading dashboard...</div>;
 
   return (
@@ -122,7 +137,6 @@ export default function FarmerDashboard() {
         </div>
       </div>
 
-      {/* VERIFICATION STATUS BANNERS */}
       {verificationStatus === "verified" && (
         <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-start gap-4">
           <div className="bg-green-100 p-2 rounded-full text-green-700 mt-0.5">
@@ -166,7 +180,6 @@ export default function FarmerDashboard() {
         </div>
       )}
 
-      {/* MARKET INTELLIGENCE FOR FARMERS ONLY */}
       <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
           <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
@@ -204,7 +217,7 @@ export default function FarmerDashboard() {
           <div className="bg-blue-50 p-3 rounded-lg text-blue-600"><Package className="w-6 h-6" /></div>
           <div>
             <p className="text-sm text-gray-500">Active Listings</p>
-            <p className="text-2xl font-bold text-gray-900">{listings.filter(l => l.status === "active").length}</p>
+            <p className="text-2xl font-bold text-gray-900">{listings.length}</p>
           </div>
         </div>
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex items-center gap-4">
@@ -245,12 +258,21 @@ export default function FarmerDashboard() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {listings.map((listing) => (
-                <div key={listing.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
+                <div key={listing.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col group relative">
                   <div className="relative">
                     <img src={listing.photoUrls[0]} alt={listing.title} className="w-full h-40 object-cover" />
-                    <span className={`absolute top-2 right-2 px-2 py-1 rounded text-xs font-bold ${listing.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                      {listing.status.toUpperCase()}
+                    <span className={`absolute top-2 left-2 px-2 py-1 rounded text-xs font-bold bg-green-100 text-green-800`}>
+                      ACTIVE
                     </span>
+                    
+                    {/* Delete Button */}
+                    <button 
+                      onClick={() => handleDeleteListing(listing.id, listing.title)}
+                      className="absolute top-2 right-2 bg-white/90 hover:bg-red-50 text-gray-500 hover:text-red-600 p-1.5 rounded-md shadow-sm transition-colors"
+                      title="Delete Listing"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                   <div className="p-4 flex-1 flex flex-col">
                     <h3 className="text-lg font-bold text-gray-900 mb-1">{listing.title}</h3>

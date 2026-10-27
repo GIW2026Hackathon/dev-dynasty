@@ -19,14 +19,14 @@ export default function RegisterPage() {
   const [phone, setPhone] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   
-  // Location state
+  // Location state - Using the shared locations.ts
   const [county, setCounty] = useState(DEFAULT_COUNTY);
   const [ward, setWard] = useState(KENYA_LOCATIONS[DEFAULT_COUNTY][0]);
   
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Handle county change and reset ward to the first available in that county
+  // Handle county change and reset ward
   const handleCountyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newCounty = e.target.value;
     setCounty(newCounty);
@@ -172,7 +172,6 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* NEW: Cascading County and Ward Dropdowns */}
             <div>
               <label className="block text-sm font-medium text-gray-700">County</label>
               <select

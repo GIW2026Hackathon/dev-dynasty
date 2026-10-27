@@ -2,10 +2,17 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { db } from "../../lib/firebase";
 import { doc, getDoc, updateDoc, addDoc, collection, serverTimestamp, query, where, getDocs } from "firebase/firestore";
-import { ArrowLeft, MapPin, ShieldCheck, Phone, MessageCircle, Tag, Star, CheckCircle, ShoppingCart } from "lucide-react";
+import { ArrowLeft, MapPin, ShieldCheck, Phone, MessageCircle, Tag, AlertCircle, Star, CheckCircle, ShoppingCart } from "lucide-react";
 import type { ListingDocument } from "../../lib/types";
 import { toast } from "sonner";
 import { useAuth } from "../../hooks/useAuth";
+
+interface ReviewData {
+  id: string;
+  buyerName: string;
+  rating: number;
+  comment: string;
+}
 
 export default function ListingDetailPage() {
   const { id } = useParams();
@@ -18,12 +25,16 @@ export default function ListingDetailPage() {
   const [farmerWhatsApp, setFarmerWhatsApp] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
+  // Reviews State
+  const [reviews, setReviews] = useState<ReviewData[]>([]);
+  const [ratingAvg, setRatingAvg] = useState<number>(0);
+
   // Transaction State
   const [buyQuantity, setBuyQuantity] = useState<number>(1);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [activeTransactionId, setActiveTransactionId] = useState<string | null>(null);
   
-  // Review State
+  // Review Form State (For after purchase)
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
@@ -40,6 +51,7 @@ export default function ListingDetailPage() {
           const listingData = { id: docSnap.id, ...docSnap.data() } as ListingDocument;
           setListing(listingData);
 
+          // Fetch Farmer Info
           const farmerRef = doc(db, "users", listingData.farmerId);
           const farmerSnap = await getDoc(farmerRef);
           if (farmerSnap.exists()) {
@@ -47,6 +59,27 @@ export default function ListingDetailPage() {
             setFarmerName(data.fullName || "Unknown Farmer");
             if (data.phone) setFarmerPhone(data.phone);
             if (data.whatsapp) setFarmerWhatsApp(data.whatsapp);
+          }
+
+          // Fetch Farmer Reviews
+          const reviewsQuery = query(
+            collection(db, "reviews"), 
+            where("farmerId", "==", listingData.farmerId)
+          );
+          const reviewsSnap = await getDocs(reviewsQuery);
+          
+          const fetchedReviews: ReviewData[] = [];
+          let totalRating = 0;
+          
+          reviewsSnap.forEach((doc) => {
+            const data = doc.data();
+            fetchedReviews.push({ id: doc.id, ...data } as ReviewData);
+            totalRating += data.rating;
+          });
+
+          setReviews(fetchedReviews);
+          if (fetchedReviews.length > 0) {
+            setRatingAvg(totalRating / fetchedReviews.length);
           }
         }
       } catch (error) {
@@ -59,7 +92,6 @@ export default function ListingDetailPage() {
     fetchListingAndFarmer();
   }, [id]);
 
-  // STEP 1: Initiate Purchase (Reserve Stock)
   const handleInitiatePurchase = async () => {
     if (!userData || !listing) return;
     if (buyQuantity <= 0 || buyQuantity > listing.quantity) {
@@ -72,18 +104,16 @@ export default function ListingDetailPage() {
       const remainingQuantity = listing.quantity - buyQuantity;
       const newStatus = remainingQuantity === 0 ? "sold" : "active";
 
-      // Create Transaction (Pending)
       const txnRef = await addDoc(collection(db, "transactions"), {
         listingId: listing.id,
         farmerId: listing.farmerId,
         buyerId: userData.id,
         quantityBought: buyQuantity,
         totalPrice: listing.pricePerUnit * buyQuantity,
-        status: "pending", // Transaction is pending until buyer confirms
+        status: "pending",
         createdAt: serverTimestamp()
       });
 
-      // Deduct Stock
       await updateDoc(doc(db, "listings", listing.id), {
         quantity: remainingQuantity,
         status: newStatus
@@ -91,8 +121,6 @@ export default function ListingDetailPage() {
 
       toast.success(`Order initiated! Contact the farmer to arrange delivery.`);
       setActiveTransactionId(txnRef.id); 
-      
-      // Update local state
       setListing({ ...listing, quantity: remainingQuantity, status: newStatus } as ListingDocument);
 
     } catch (error: any) {
@@ -103,25 +131,20 @@ export default function ListingDetailPage() {
     }
   };
 
-  // STEP 2: Confirm Received (Triggers Review)
   const handleConfirmReceived = () => {
-    // Open the review modal
     setShowReviewModal(true);
   };
 
-  // STEP 3: Submit Review
   const submitReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userData || !listing || !activeTransactionId) return;
     setSubmittingReview(true);
 
     try {
-      // 1. Update Transaction Status to 'completed'
       await updateDoc(doc(db, "transactions", activeTransactionId), {
         status: "completed"
       });
 
-      // 2. Add Review to Firestore
       await addDoc(collection(db, "reviews"), {
         listingId: listing.id,
         farmerId: listing.farmerId,
@@ -133,7 +156,7 @@ export default function ListingDetailPage() {
         createdAt: serverTimestamp()
       });
 
-      // 3. Update Farmer's Rating
+      // Update Farmer Rating
       const farmerProfileQuery = query(collection(db, "farmers"), where("userId", "==", listing.farmerId));
       const farmerProfileSnap = await getDocs(farmerProfileQuery);
       
@@ -154,7 +177,10 @@ export default function ListingDetailPage() {
 
       toast.success("Review submitted! Thank you.");
       setShowReviewModal(false);
-      navigate("/dashboard"); // Send them back to marketplace
+      
+      // Refresh page to show new review
+      window.location.reload();
+      
     } catch (error: any) {
       console.error("Review error:", error);
       toast.error("Failed to submit review.");
@@ -207,29 +233,49 @@ export default function ListingDetailPage() {
             <p className="text-sm text-gray-600 mt-1">{listing.quantity} {listing.unit} available</p>
           </div>
 
-          <div className="border-t border-gray-100 pt-6 mb-8">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Sold By</h3>
-            <div className="flex items-center gap-4">
+          {/* Farmer Info & Reviews */}
+          <div className="border-t border-gray-100 pt-6 mb-6">
+            <div className="flex justify-between items-start mb-3">
+              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Sold By</h3>
+              <div className="flex items-center gap-1 text-sm font-bold text-gray-900">
+                <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                {reviews.length > 0 ? `${ratingAvg.toFixed(1)} (${reviews.length} reviews)` : "New Farmer"}
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-4 mb-4">
               <div className="w-12 h-12 bg-brand-100 rounded-full flex items-center justify-center text-brand-700 font-bold text-xl">{farmerName.charAt(0)}</div>
               <div>
                 <p className="font-bold text-gray-900">{farmerName}</p>
                 <div className="flex items-center gap-1 text-xs text-green-600 font-medium mt-1"><ShieldCheck className="w-4 h-4" /> Verified Farmer</div>
               </div>
             </div>
+
+            {/* Display Recent Reviews */}
+            {reviews.length > 0 && (
+              <div className="bg-gray-50 p-3 rounded-lg mt-2 max-h-32 overflow-y-auto">
+                <p className="text-xs font-semibold text-gray-500 mb-2">What buyers are saying:</p>
+                {reviews.slice(0, 2).map((review) => (
+                  <div key={review.id} className="mb-2 last:mb-0">
+                    <div className="flex items-center gap-1 mb-1">
+                      {[...Array(5)].map((_, i) => (
+                        <Star key={i} className={`w-3 h-3 ${i < review.rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`} />
+                      ))}
+                      <span className="text-xs font-bold text-gray-700 ml-1">{review.buyerName}</span>
+                    </div>
+                    <p className="text-xs text-gray-600 italic">"{review.comment}"</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="mt-auto space-y-4">
-            
-            {/* STATE 1: BEFORE PURCHASE */}
             {!isSoldOut && !activeTransactionId && (
               <div className="bg-gray-50 border border-gray-200 p-4 rounded-xl">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Quantity to buy:</label>
                 <div className="flex gap-3">
-                  <input
-                    type="number" min="1" max={listing.quantity} value={buyQuantity}
-                    onChange={(e) => setBuyQuantity(Number(e.target.value))}
-                    className="w-1/3 px-3 py-2 border border-gray-300 rounded-lg focus:ring-brand-500 font-bold text-center"
-                  />
+                  <input type="number" min="1" max={listing.quantity} value={buyQuantity} onChange={(e) => setBuyQuantity(Number(e.target.value))} className="w-1/3 px-3 py-2 border border-gray-300 rounded-lg focus:ring-brand-500 font-bold text-center" />
                   <button onClick={handleInitiatePurchase} disabled={isPurchasing} className="flex-1 flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 text-white py-2 rounded-lg font-bold transition-colors disabled:opacity-50">
                     <ShoppingCart className="w-5 h-5" /> {isPurchasing ? "Processing..." : "Initiate Purchase"}
                   </button>
@@ -237,14 +283,11 @@ export default function ListingDetailPage() {
               </div>
             )}
 
-            {/* STATE 2: AFTER PURCHASE (Show Contact Info) */}
             {activeTransactionId && (
               <div className="bg-green-50 border border-green-200 p-4 rounded-xl mb-4">
-                <p className="text-sm text-green-800 font-medium text-center mb-3">
-                  Order Initiated! Please contact {farmerName} to arrange payment and delivery.
-                </p>
+                <p className="text-sm text-green-800 font-medium text-center mb-3">Order Initiated! Please contact {farmerName} to arrange payment and delivery.</p>
                 {cleanWhatsApp && (
-                  <a href={`https://wa.me/${cleanWhatsApp}?text=Hi ${farmerName}, I just initiated a purchase for ${buyQuantity} ${listing.unit}(s) of ${listing.title} on GIW AgriTech.`} target="_blank" rel="noopener noreferrer" className="w-full flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#20bd5a] text-white py-2.5 rounded-lg font-bold transition-colors shadow-sm mb-2">
+                  <a href={`https://wa.me/${cleanWhatsApp}?text=Hi ${farmerName}, I just initiated a purchase for ${buyQuantity} ${listing.unit}(s) of ${listing.title} on Mkulima Market.`} target="_blank" rel="noopener noreferrer" className="w-full flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#20bd5a] text-white py-2.5 rounded-lg font-bold transition-colors shadow-sm mb-2">
                     <MessageCircle className="w-5 h-5" /> Chat on WhatsApp
                   </a>
                 )}
@@ -258,17 +301,6 @@ export default function ListingDetailPage() {
                 </button>
               </div>
             )}
-
-            {/* Fallback if user hasn't purchased yet, just show contact */}
-            {!activeTransactionId && (
-              <>
-                {cleanWhatsApp ? (
-                  <a href={`https://wa.me/${cleanWhatsApp}?text=Hi ${farmerName}, I am interested in your ${listing.title}.`} target="_blank" rel="noopener noreferrer" className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 py-3 rounded-xl font-bold transition-colors">
-                    <MessageCircle className="w-5 h-5" /> Ask a Question
-                  </a>
-                ) : null}
-              </>
-            )}
           </div>
         </div>
       </div>
@@ -279,7 +311,6 @@ export default function ListingDetailPage() {
           <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl">
             <h2 className="text-2xl font-bold text-gray-900 mb-2 text-center">Leave a Review</h2>
             <p className="text-gray-500 text-sm mb-6 text-center">How was your experience buying from {farmerName}?</p>
-            
             <form onSubmit={submitReview}>
               <div className="flex justify-center gap-2 mb-6">
                 {[1, 2, 3, 4, 5].map((star) => (

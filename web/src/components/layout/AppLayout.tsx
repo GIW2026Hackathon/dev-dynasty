@@ -3,7 +3,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { auth } from "../../lib/firebase";
 import { signOut } from "firebase/auth";
 import { useNavigate, Link } from "react-router-dom";
-import { LogOut, User, HeartPulse } from "lucide-react"; // Added HeartPulse icon
+import { LogOut, User } from "lucide-react";
 import { toast } from "sonner";
 
 export default function AppLayout({ children }: { children: ReactNode }) {
@@ -26,7 +26,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             
-            {/* LEFT SIDE: Logo and Smart Health Hub Link */}
+            {/* LEFT SIDE: Logo ONLY (Smart Health Hub removed) */}
             <div className="flex items-center gap-6">
               <Link to="/dashboard" className="flex items-center gap-2">
                 <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
@@ -34,20 +34,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 </div>
                 <span className="font-bold text-xl text-gray-900 hidden sm:block">Mkulima Market</span>
               </Link>
-
-              {/* Vertical Divider */}
-              <div className="hidden sm:block h-6 w-px bg-gray-300"></div>
-
-              {/* The Smart Health Hub Link */}
-              <a 
-                href="https://osekolyon.blogspot.com/" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-brand-600 transition-colors"
-              >
-                <HeartPulse className="w-4 h-4 text-brand-600" />
-                Smart Health Hub
-              </a>
             </div>
 
             {/* RIGHT SIDE: User Info and Logout */}

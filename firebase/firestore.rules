@@ -2,45 +2,74 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    function isSignedIn() { return request.auth != null; }
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
     function isAdmin() {
       return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
-
-    // Allow anyone logged in to read/write basic profiles
-    match /users/{userId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+    
+    function isOfficer() {
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'officer';
     }
 
-    // Allow anyone to read farmers, and allow updates (for rating changes)
+    // 1. USERS COLLECTION
+    match /users/{userId} {
+      allow read: if true; 
+      allow create: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      // Admins can update ANY user (to suspend them), users can update themselves
+      allow update: if (isSignedIn() && request.auth.uid == userId) || isAdmin();
+      // Admins can delete users
+      allow delete: if isAdmin(); 
+    }
+
+    // 2. FARMERS COLLECTION
     match /farmers/{farmerId} {
       allow read: if true;
-      allow write: if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == farmerId;
+      allow update: if (isSignedIn() && request.auth.uid == farmerId && request.resource.data.verificationStatus == resource.data.verificationStatus) 
+                    || isOfficer() || isAdmin();
+      // Admins can delete farmer profiles
+      allow delete: if isAdmin();
     }
 
-    // Allow anyone logged in to read and update listings (for buying/stock)
+    // 3. LISTINGS COLLECTION
     match /listings/{listingId} {
       allow read: if true;
-      allow write: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.farmerId == request.auth.uid;
+      // Admins can update/delete any listing
+      allow update: if (isSignedIn() && resource.data.farmerId == request.auth.uid) || isAdmin();
+      allow delete: if isAdmin(); 
     }
 
-    // Allow buyers to create transactions
+    // 4. VERIFICATION REQUESTS
+    match /verification_requests/{requestId} {
+      allow read: if isSignedIn(); 
+      allow create: if isSignedIn() && request.resource.data.farmerId == request.auth.uid;
+      allow update: if isOfficer() || isAdmin();
+    }
+
+    // 5. TRANSACTIONS
     match /transactions/{txnId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
+      allow read: if isSignedIn() && (resource.data.farmerId == request.auth.uid || resource.data.buyerId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && request.resource.data.buyerId == request.auth.uid;
+      allow update: if isSignedIn() && (resource.data.farmerId == request.auth.uid || resource.data.buyerId == request.auth.uid || isAdmin());
     }
 
-    // ALLOW BUYERS TO CREATE REVIEWS (This was the block!)
+    // 6. REVIEWS
     match /reviews/{reviewId} {
       allow read: if true;
-      allow create: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.buyerId == request.auth.uid;
       allow update: if isAdmin() || (isSignedIn() && resource.data.farmerId == request.auth.uid);
     }
 
+    // 7. AUDIT LOG
     match /audit_log/{logId} {
-      allow read, write: if isSignedIn(); 
+      allow read: if isAdmin();
+      allow create: if isSignedIn(); 
+      allow update, delete: if false; 
     }
   }
 }
